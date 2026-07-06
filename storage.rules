@@ -1,0 +1,17 @@
+// Regras do Firebase Storage para o projeto "saboaria-77d45"
+// Cole isso no Firebase Console → Storage → Regras
+//
+// ATENÇÃO: sem autenticação por enquanto (conforme decidido). Qualquer pessoa
+// com a URL do app consegue ler e enviar arquivos para a pasta "receitas/".
+// Quando quiser adicionar login, troque "if true" por algo como
+// "if request.auth != null".
+
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /receitas/{arquivo} {
+      allow read, write: if true;
+    }
+  }
+}

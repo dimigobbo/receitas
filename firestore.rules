@@ -1,0 +1,17 @@
+// Regras do Firestore para o projeto "saboaria-77d45"
+// Cole isso no Firebase Console → Firestore Database → Regras
+//
+// ATENÇÃO: sem autenticação por enquanto (conforme decidido). Qualquer pessoa
+// com a URL do app consegue ler e escrever na coleção "receitas". Isso é
+// aceitável para uma ferramenta pessoal de baixo risco, mas quando quiser
+// adicionar login, troque "if true" por algo como "if request.auth != null".
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /receitas/{receitaId} {
+      allow read, write: if true;
+    }
+  }
+}
