@@ -6,13 +6,7 @@ import {
   setDoc,
   deleteDoc,
 } from "firebase/firestore";
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-} from "firebase/storage";
-import { db, storage } from "./firebase.js";
+import { db } from "./firebase.js";
 
 const TIPOS_RECEITA = ["Sabonete", "Sabonete líquido", "Creme", "Perfume"];
 
@@ -55,14 +49,14 @@ function receitaVazia() {
     nome: "",
     tipo: TIPOS_RECEITA[0],
     foto: null,
-    fotoArquivo: null,
-    fotoPreview: null,
     ingredientes: [novoIngrediente()],
     modoPreparo: "",
   };
 }
 
-// Redimensiona e comprime a imagem antes de guardar, para manter o Storage leve
+// Redimensiona e comprime a imagem para um data URL (base64) pequeno o
+// suficiente para caber tranquilamente dentro do documento do Firestore
+// (limite de 1MB por documento).
 function comprimirImagem(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -71,7 +65,7 @@ function comprimirImagem(file) {
       const img = new Image();
       img.onerror = () => reject(new Error("Falha ao carregar a imagem"));
       img.onload = () => {
-        const maxLado = 900;
+        const maxLado = 700;
         let { width, height } = img;
         if (width > height && width > maxLado) {
           height = Math.round((height * maxLado) / width);
@@ -85,11 +79,7 @@ function comprimirImagem(file) {
         canvas.height = height;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
-        canvas.toBlob(
-          (blob) => (blob ? resolve(blob) : reject(new Error("Falha ao gerar imagem"))),
-          "image/jpeg",
-          0.75
-        );
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
       };
       img.src = reader.result;
     };
@@ -135,19 +125,17 @@ function CampoTexto({ label, value, onChange, placeholder, area }) {
   );
 }
 
-function CampoFoto({ receita, onMudar }) {
+function CampoFoto({ foto, onMudar }) {
   const inputRef = React.useRef(null);
   const [carregando, setCarregando] = useState(false);
-  const previewAtual = receita.fotoPreview || receita.foto;
 
   const escolherArquivo = async (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setCarregando(true);
     try {
-      const blob = await comprimirImagem(file);
-      const preview = URL.createObjectURL(blob);
-      onMudar({ fotoArquivo: blob, fotoPreview: preview });
+      const dataUrl = await comprimirImagem(file);
+      onMudar(dataUrl);
     } catch (err) {
       // silenciosamente ignora falha de leitura de imagem
     } finally {
@@ -159,16 +147,16 @@ function CampoFoto({ receita, onMudar }) {
   return (
     <div className="flex flex-col gap-1">
       <Etiqueta>Foto</Etiqueta>
-      {previewAtual ? (
+      {foto ? (
         <div className="relative w-40">
           <img
-            src={previewAtual}
+            src={foto}
             alt="Foto da receita"
             style={{ borderRadius: 12, border: `1px solid ${PALETA.linha}` }}
             className="w-40 h-40 object-cover"
           />
           <button
-            onClick={() => onMudar({ fotoArquivo: null, fotoPreview: null, foto: null })}
+            onClick={() => onMudar(null)}
             style={{ background: PALETA.papel, color: PALETA.perigo, border: `1px solid ${PALETA.linha}` }}
             className="absolute top-1 right-1 text-xs px-2 py-0.5 rounded-md"
           >
@@ -261,7 +249,7 @@ function FormularioReceita({ inicial, onSalvar, onCancelar, salvando }) {
       </div>
 
       <div className="flex flex-wrap gap-5">
-        <CampoFoto receita={receita} onMudar={(campos) => setReceita({ ...receita, ...campos })} />
+        <CampoFoto foto={receita.foto} onMudar={(dataUrl) => setReceita({ ...receita, foto: dataUrl })} />
         <div className="flex-1 min-w-[220px] flex flex-col gap-3">
           <CampoTexto label="Nome da receita" value={receita.nome} onChange={(v) => setReceita({ ...receita, nome: v })} placeholder="Ex.: Barra de lavanda e aveia" />
           <label className="flex flex-col gap-1">
@@ -407,25 +395,10 @@ export default function App() {
   const salvarReceita = async (receita) => {
     setSalvando(true);
     try {
-      let urlFoto = receita.foto || null;
-
-      if (receita.fotoArquivo) {
-        const caminho = ref(storage, `receitas/${receita.id}.jpg`);
-        await uploadBytes(caminho, receita.fotoArquivo);
-        urlFoto = await getDownloadURL(caminho);
-      } else if (!receita.foto) {
-        // foto removida — tenta apagar do Storage, ignora se não existir
-        try {
-          await deleteObject(ref(storage, `receitas/${receita.id}.jpg`));
-        } catch (e) {
-          /* sem foto anterior, tudo bem */
-        }
-      }
-
       const dados = {
         nome: receita.nome,
         tipo: receita.tipo,
-        foto: urlFoto,
+        foto: receita.foto || null,
         ingredientes: receita.ingredientes,
         modoPreparo: receita.modoPreparo,
         criadoEm: receita.criadoEm || Date.now(),
@@ -446,11 +419,6 @@ export default function App() {
     if (!window.confirm("Excluir esta receita? Essa ação não pode ser desfeita.")) return;
     try {
       await deleteDoc(doc(db, "receitas", receita.id));
-      try {
-        await deleteObject(ref(storage, `receitas/${receita.id}.jpg`));
-      } catch (e) {
-        /* sem foto, tudo bem */
-      }
     } catch (e) {
       setErro("Não foi possível excluir a receita.");
     }
@@ -529,7 +497,7 @@ export default function App() {
                     key={r.id}
                     receita={r}
                     onAbrir={(rec) => {
-                      setReceitaAtual({ ...rec, novo: false, fotoArquivo: null, fotoPreview: null });
+                      setReceitaAtual({ ...rec, novo: false });
                       setTela("form");
                     }}
                     onExcluir={excluirReceita}
