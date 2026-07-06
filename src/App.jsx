@@ -1,4 +1,18 @@
 import React, { useState, useEffect, useCallback } from "react";
+import {
+  collection,
+  onSnapshot,
+  doc,
+  setDoc,
+  deleteDoc,
+} from "firebase/firestore";
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
+import { db, storage } from "./firebase.js";
 
 const TIPOS_RECEITA = ["Sabonete", "Sabonete líquido", "Creme", "Perfume"];
 
@@ -25,22 +39,30 @@ function useGoogleFonts() {
   }, []);
 }
 
+function gerarId() {
+  if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
 function novoIngrediente() {
-  return { key: Math.random().toString(36).slice(2), nome: "", quantidade: "", unidade: "" };
+  return { key: gerarId(), nome: "", quantidade: "", unidade: "" };
 }
 
 function receitaVazia() {
   return {
-    id: null,
+    id: gerarId(),
+    novo: true,
     nome: "",
     tipo: TIPOS_RECEITA[0],
     foto: null,
+    fotoArquivo: null,
+    fotoPreview: null,
     ingredientes: [novoIngrediente()],
     modoPreparo: "",
   };
 }
 
-// Redimensiona e comprime a imagem antes de guardar, para não estourar o limite de armazenamento
+// Redimensiona e comprime a imagem antes de guardar, para manter o Storage leve
 function comprimirImagem(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -49,7 +71,7 @@ function comprimirImagem(file) {
       const img = new Image();
       img.onerror = () => reject(new Error("Falha ao carregar a imagem"));
       img.onload = () => {
-        const maxLado = 700;
+        const maxLado = 900;
         let { width, height } = img;
         if (width > height && width > maxLado) {
           height = Math.round((height * maxLado) / width);
@@ -63,7 +85,11 @@ function comprimirImagem(file) {
         canvas.height = height;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.7));
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error("Falha ao gerar imagem"))),
+          "image/jpeg",
+          0.75
+        );
       };
       img.src = reader.result;
     };
@@ -109,17 +135,19 @@ function CampoTexto({ label, value, onChange, placeholder, area }) {
   );
 }
 
-function CampoFoto({ foto, onMudar }) {
+function CampoFoto({ receita, onMudar }) {
   const inputRef = React.useRef(null);
   const [carregando, setCarregando] = useState(false);
+  const previewAtual = receita.fotoPreview || receita.foto;
 
   const escolherArquivo = async (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setCarregando(true);
     try {
-      const dataUrl = await comprimirImagem(file);
-      onMudar(dataUrl);
+      const blob = await comprimirImagem(file);
+      const preview = URL.createObjectURL(blob);
+      onMudar({ fotoArquivo: blob, fotoPreview: preview });
     } catch (err) {
       // silenciosamente ignora falha de leitura de imagem
     } finally {
@@ -131,16 +159,16 @@ function CampoFoto({ foto, onMudar }) {
   return (
     <div className="flex flex-col gap-1">
       <Etiqueta>Foto</Etiqueta>
-      {foto ? (
+      {previewAtual ? (
         <div className="relative w-40">
           <img
-            src={foto}
+            src={previewAtual}
             alt="Foto da receita"
             style={{ borderRadius: 12, border: `1px solid ${PALETA.linha}` }}
             className="w-40 h-40 object-cover"
           />
           <button
-            onClick={() => onMudar(null)}
+            onClick={() => onMudar({ fotoArquivo: null, fotoPreview: null, foto: null })}
             style={{ background: PALETA.papel, color: PALETA.perigo, border: `1px solid ${PALETA.linha}` }}
             className="absolute top-1 right-1 text-xs px-2 py-0.5 rounded-md"
           >
@@ -207,7 +235,7 @@ function LinhaIngrediente({ ingrediente, onMudar, onRemover, podeRemover }) {
   );
 }
 
-function FormularioReceita({ inicial, onSalvar, onCancelar }) {
+function FormularioReceita({ inicial, onSalvar, onCancelar, salvando }) {
   const [receita, setReceita] = useState(inicial);
 
   const mudarIngrediente = (idx, novo) => {
@@ -225,7 +253,7 @@ function FormularioReceita({ inicial, onSalvar, onCancelar }) {
     <div style={{ background: PALETA.papel, border: `1px solid ${PALETA.linha}`, borderRadius: 18 }} className="p-6 flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h2 style={{ fontFamily: "'Fraunces', serif", color: PALETA.tinta }} className="text-2xl">
-          {inicial.id ? "Editar receita" : "Nova receita"}
+          {inicial.novo ? "Nova receita" : "Editar receita"}
         </h2>
         <button onClick={onCancelar} style={{ color: PALETA.tintaSuave }} className="text-sm hover:underline">
           Voltar
@@ -233,7 +261,7 @@ function FormularioReceita({ inicial, onSalvar, onCancelar }) {
       </div>
 
       <div className="flex flex-wrap gap-5">
-        <CampoFoto foto={receita.foto} onMudar={(v) => setReceita({ ...receita, foto: v })} />
+        <CampoFoto receita={receita} onMudar={(campos) => setReceita({ ...receita, ...campos })} />
         <div className="flex-1 min-w-[220px] flex flex-col gap-3">
           <CampoTexto label="Nome da receita" value={receita.nome} onChange={(v) => setReceita({ ...receita, nome: v })} placeholder="Ex.: Barra de lavanda e aveia" />
           <label className="flex flex-col gap-1">
@@ -283,11 +311,12 @@ function FormularioReceita({ inicial, onSalvar, onCancelar }) {
           Cancelar
         </button>
         <button
+          disabled={salvando}
           onClick={() => onSalvar(receita)}
-          style={{ background: PALETA.tinta, color: PALETA.papel }}
+          style={{ background: PALETA.tinta, color: PALETA.papel, opacity: salvando ? 0.6 : 1 }}
           className="px-5 py-2 rounded-md text-sm font-medium"
         >
-          Salvar receita
+          {salvando ? "Salvando..." : "Salvar receita"}
         </button>
       </div>
     </div>
@@ -327,7 +356,7 @@ function RecipeCard({ receita, onAbrir, onExcluir }) {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onExcluir(receita.id);
+              onExcluir(receita);
             }}
             style={{ color: PALETA.perigo }}
             className="text-xs px-2 py-1 rounded-md hover:bg-black/5 shrink-0"
@@ -346,60 +375,89 @@ function RecipeCard({ receita, onAbrir, onExcluir }) {
   );
 }
 
-export default function CadernoSaboaria() {
+export default function App() {
   useGoogleFonts();
   const [receitas, setReceitas] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
   const [tela, setTela] = useState("lista");
   const [receitaAtual, setReceitaAtual] = useState(null);
+  const [salvando, setSalvando] = useState(false);
   const [busca, setBusca] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("Todos");
 
   useEffect(() => {
-    (async () => {
-      try {
-        const resultado = await window.storage.get("receitas");
-        if (resultado && resultado.value) {
-          setReceitas(JSON.parse(resultado.value));
-        }
-      } catch (e) {
-        // chave ainda não existe — normal na primeira vez
-      } finally {
+    const unsubscribe = onSnapshot(
+      collection(db, "receitas"),
+      (snapshot) => {
+        const lista = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        lista.sort((a, b) => (b.criadoEm || 0) - (a.criadoEm || 0));
+        setReceitas(lista);
+        setCarregando(false);
+        setErro(null);
+      },
+      (err) => {
+        setErro("Não foi possível carregar as receitas do Firebase.");
         setCarregando(false);
       }
-    })();
+    );
+    return () => unsubscribe();
   }, []);
 
-  const persistir = useCallback(async (novaLista) => {
-    setReceitas(novaLista);
+  const salvarReceita = async (receita) => {
+    setSalvando(true);
     try {
-      const ok = await window.storage.set("receitas", JSON.stringify(novaLista));
-      if (!ok) setErro("Não foi possível salvar. Tente novamente.");
-      else setErro(null);
-    } catch (e) {
-      setErro("Não foi possível salvar. Tente novamente.");
-    }
-  }, []);
+      let urlFoto = receita.foto || null;
 
-  const salvarReceita = (receita) => {
-    if (receita.id) {
-      persistir(receitas.map((r) => (r.id === receita.id ? receita : r)));
-    } else {
-      persistir([...receitas, { ...receita, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }]);
+      if (receita.fotoArquivo) {
+        const caminho = ref(storage, `receitas/${receita.id}.jpg`);
+        await uploadBytes(caminho, receita.fotoArquivo);
+        urlFoto = await getDownloadURL(caminho);
+      } else if (!receita.foto) {
+        // foto removida — tenta apagar do Storage, ignora se não existir
+        try {
+          await deleteObject(ref(storage, `receitas/${receita.id}.jpg`));
+        } catch (e) {
+          /* sem foto anterior, tudo bem */
+        }
+      }
+
+      const dados = {
+        nome: receita.nome,
+        tipo: receita.tipo,
+        foto: urlFoto,
+        ingredientes: receita.ingredientes,
+        modoPreparo: receita.modoPreparo,
+        criadoEm: receita.criadoEm || Date.now(),
+      };
+
+      await setDoc(doc(db, "receitas", receita.id), dados);
+      setTela("lista");
+      setReceitaAtual(null);
+      setErro(null);
+    } catch (e) {
+      setErro("Não foi possível salvar a receita. Tente novamente.");
+    } finally {
+      setSalvando(false);
     }
-    setTela("lista");
-    setReceitaAtual(null);
   };
 
-  const excluirReceita = (id) => {
-    if (window.confirm("Excluir esta receita? Essa ação não pode ser desfeita.")) {
-      persistir(receitas.filter((r) => r.id !== id));
+  const excluirReceita = async (receita) => {
+    if (!window.confirm("Excluir esta receita? Essa ação não pode ser desfeita.")) return;
+    try {
+      await deleteDoc(doc(db, "receitas", receita.id));
+      try {
+        await deleteObject(ref(storage, `receitas/${receita.id}.jpg`));
+      } catch (e) {
+        /* sem foto, tudo bem */
+      }
+    } catch (e) {
+      setErro("Não foi possível excluir a receita.");
     }
   };
 
   const receitasFiltradas = receitas.filter((r) => {
-    const combinaBusca = r.nome.toLowerCase().includes(busca.toLowerCase());
+    const combinaBusca = (r.nome || "").toLowerCase().includes(busca.toLowerCase());
     const combinaTipo = filtroTipo === "Todos" || r.tipo === filtroTipo;
     return combinaBusca && combinaTipo;
   });
@@ -471,7 +529,7 @@ export default function CadernoSaboaria() {
                     key={r.id}
                     receita={r}
                     onAbrir={(rec) => {
-                      setReceitaAtual(rec);
+                      setReceitaAtual({ ...rec, novo: false, fotoArquivo: null, fotoPreview: null });
                       setTela("form");
                     }}
                     onExcluir={excluirReceita}
@@ -485,6 +543,7 @@ export default function CadernoSaboaria() {
         {tela === "form" && (
           <FormularioReceita
             inicial={receitaAtual}
+            salvando={salvando}
             onSalvar={salvarReceita}
             onCancelar={() => {
               setTela("lista");
