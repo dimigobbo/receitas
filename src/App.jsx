@@ -39,7 +39,7 @@ function gerarId() {
 }
 
 function novoIngrediente() {
-  return { key: gerarId(), nome: "", quantidade: "", unidade: "" };
+  return { key: gerarId(), nome: "", quantidade: "" };
 }
 
 function receitaVazia() {
@@ -50,6 +50,8 @@ function receitaVazia() {
     tipo: TIPOS_RECEITA[0],
     foto: null,
     ingredientes: [novoIngrediente()],
+    rendimento: "",
+    embalagem: "",
     modoPreparo: "",
   };
 }
@@ -190,23 +192,13 @@ function LinhaIngrediente({ ingrediente, onMudar, onRemover, podeRemover }) {
           className="rounded-md px-2 py-1.5 text-sm w-full bg-white"
         />
       </label>
-      <label className="flex flex-col gap-1" style={{ width: 100 }}>
+      <label className="flex flex-col gap-1" style={{ width: 120 }}>
         <Etiqueta>Quantidade</Etiqueta>
         <input
-          type="number"
           value={ingrediente.quantidade}
           onChange={(e) => onMudar({ ...ingrediente, quantidade: e.target.value })}
+          placeholder="Ex.: 100g"
           style={{ border: `1px solid ${PALETA.linha}`, fontFamily: "'IBM Plex Mono', monospace" }}
-          className="rounded-md px-2 py-1.5 text-sm w-full bg-white"
-        />
-      </label>
-      <label className="flex flex-col gap-1" style={{ width: 100 }}>
-        <Etiqueta>Unidade</Etiqueta>
-        <input
-          value={ingrediente.unidade}
-          onChange={(e) => onMudar({ ...ingrediente, unidade: e.target.value })}
-          placeholder="g, ml, gotas..."
-          style={{ border: `1px solid ${PALETA.linha}`, fontFamily: "'Work Sans', sans-serif" }}
           className="rounded-md px-2 py-1.5 text-sm w-full bg-white"
         />
       </label>
@@ -286,6 +278,25 @@ function FormularioReceita({ inicial, onSalvar, onCancelar, salvando }) {
         ))}
       </div>
 
+      <div className="flex flex-wrap gap-3">
+        <div className="flex-1 min-w-[160px]">
+          <CampoTexto
+            label="Rendimento"
+            value={receita.rendimento}
+            onChange={(v) => setReceita({ ...receita, rendimento: v })}
+            placeholder="Ex.: 20 barras de 100g"
+          />
+        </div>
+        <div className="flex-1 min-w-[160px]">
+          <CampoTexto
+            label="Tipo de embalagem"
+            value={receita.embalagem}
+            onChange={(v) => setReceita({ ...receita, embalagem: v })}
+            placeholder="Ex.: Saco kraft + etiqueta"
+          />
+        </div>
+      </div>
+
       <CampoTexto
         label="Modo de preparo"
         value={receita.modoPreparo}
@@ -358,6 +369,12 @@ function RecipeCard({ receita, onAbrir, onExcluir }) {
             .map((i) => i.nome)
             .join(", ") || "Nenhum ingrediente adicionado"}
         </p>
+        {(receita.rendimento || receita.embalagem) && (
+          <div className="flex flex-wrap gap-x-3">
+            {receita.rendimento && <Etiqueta>Rende: {receita.rendimento}</Etiqueta>}
+            {receita.embalagem && <Etiqueta>Emb.: {receita.embalagem}</Etiqueta>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -400,6 +417,8 @@ export default function App() {
         tipo: receita.tipo,
         foto: receita.foto || null,
         ingredientes: receita.ingredientes,
+        rendimento: receita.rendimento || "",
+        embalagem: receita.embalagem || "",
         modoPreparo: receita.modoPreparo,
         criadoEm: receita.criadoEm || Date.now(),
       };
