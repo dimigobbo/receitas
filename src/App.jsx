@@ -355,8 +355,8 @@ function RecipeCard({ receita, onAbrir, onExcluir }) {
       )}
       <div className="flex flex-col gap-2 flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
-          <div>
-            <h3 style={{ fontFamily: "'Fraunces', serif", color: PALETA.tinta }} className="text-xl leading-tight truncate">
+          <div className="min-w-0 flex-1">
+            <h3 style={{ fontFamily: "'Fraunces', serif", color: PALETA.tinta }} className="text-xl leading-tight break-words">
               {receita.nome || "Sem nome"}
             </h3>
             <Etiqueta>{receita.tipo}</Etiqueta>
@@ -372,7 +372,7 @@ function RecipeCard({ receita, onAbrir, onExcluir }) {
             Excluir
           </button>
         </div>
-        <p style={{ color: PALETA.tintaSuave }} className="text-xs truncate">
+        <p style={{ color: PALETA.tintaSuave }} className="text-xs break-words">
           {(receita.ingredientes || [])
             .filter((i) => i.nome)
             .map((i) => i.nome)
