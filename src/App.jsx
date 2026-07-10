@@ -8,7 +8,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 
-const TIPOS_RECEITA = ["Sabonete", "Sabonete líquido", "Creme", "Perfume"];
+const TIPOS_RECEITA = ["Corpo", "Casa"];
 
 const PALETA = {
   fundo: "#E8E2D3",
@@ -36,6 +36,14 @@ function useGoogleFonts() {
 function gerarId() {
   if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+// Remove acentos e caixa alta para permitir busca "sem acento" (ex.: "sabao" encontra "sabão")
+function normalizar(texto) {
+  return (texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 function novoIngrediente() {
@@ -444,7 +452,7 @@ export default function App() {
   };
 
   const receitasFiltradas = receitas.filter((r) => {
-    const combinaBusca = (r.nome || "").toLowerCase().includes(busca.toLowerCase());
+    const combinaBusca = normalizar(r.nome).includes(normalizar(busca));
     const combinaTipo = filtroTipo === "Todos" || r.tipo === filtroTipo;
     return combinaBusca && combinaTipo;
   });
