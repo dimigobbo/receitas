@@ -7,6 +7,7 @@ import {
   deleteDoc,
 } from "firebase/firestore";
 import { db } from "./firebase.js";
+import logo from "./assets/logo.png";
 
 const TIPOS_RECEITA = ["Corpo", "Casa"];
 
@@ -460,11 +461,8 @@ export default function App() {
   return (
     <div style={{ background: PALETA.fundo, minHeight: "100vh", fontFamily: "'Work Sans', sans-serif" }} className="p-5 md:p-10">
       <div className="max-w-5xl mx-auto flex flex-col gap-6">
-        <header className="flex flex-col gap-1">
-          <Etiqueta>Saboaria artesanal</Etiqueta>
-          <h1 style={{ fontFamily: "'Fraunces', serif", color: PALETA.tinta }} className="text-4xl">
-            Karolina Guidini
-          </h1>
+        <header className="flex justify-center sm:justify-start">
+          <img src={logo} alt="Karolina Guidini — Saboaria Artesanal" className="h-24 w-24 sm:h-28 sm:w-28 object-contain" />
         </header>
 
         {erro && (
